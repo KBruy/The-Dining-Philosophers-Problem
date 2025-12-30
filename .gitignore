@@ -1,0 +1,13 @@
+#build / output
+build/
+*.o
+*.out
+
+#executables
+test_*
+filozofowie
+
+#editor / system
+
+.vscode/
+.DS_Store
