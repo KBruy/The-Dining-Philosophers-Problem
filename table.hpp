@@ -33,10 +33,10 @@ class Table {
         //Synchronizacja / monitor
 
         std::mutex mtx;
-        std::conditon_variable cv;
+        std::condition_variable cv;
 
         //FIFO dla fairness (brak starvation)
-        std::deque<int> quene;
+        std::deque<int> queue;
         int left(int id) const;
         int right(int id) const;
 
