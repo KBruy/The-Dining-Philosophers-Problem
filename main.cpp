@@ -6,7 +6,13 @@
 #include <random>
 #include <string>
 
+#include "table.hpp"
+
+
+
 std::mutex print_mtx;
+
+
 //=============================================================================================
 //bezpieczne wypisywanie jednej linijki pod mutexem
 void safe_print(const std::string& s) {
@@ -66,9 +72,13 @@ int main(int argc, char** argv) {
         return 1;
 
     }
+//======================Start=======================
 
     safe_print("Start:\n N=" + std::to_string(N) + "\nM=" + std::to_string(M));
 
+    //Stworzenie stołu - moniota który zarządza widelcami i kolejką
+
+    Table table(N);
 
     std::vector<std::thread> philo_threads;
     philo_threads.reserve(N);
@@ -76,27 +86,35 @@ int main(int argc, char** argv) {
 
     //Funkcja wykonywana przez każdy wątek (filozofa)
 
-    auto philosopher = [&](int id) {
-
+     auto philosopher = [&](int id) {
         // generator losowy per-wątek (żeby różne czasy myślenia/jedzenia)
-
         std::mt19937 rng(std::random_device{}());
         std::uniform_int_distribution<int> think_ms(200, 600);
         std::uniform_int_distribution<int> eat_ms(150, 450);
 
         for (int meal = 1; meal <= M; ++meal) {
-            safe_print("F" + std::to_string(id)+" mysli (posilek " + std::to_string(meal) + "/" + std::to_string(M) + ")");
+            safe_print("F" + std::to_string(id) + " mysli (posilek " +
+                       std::to_string(meal) + "/" + std::to_string(M) + ")");
             std::this_thread::sleep_for(std::chrono::milliseconds(think_ms(rng)));
 
+            safe_print("F" + std::to_string(id) + " glodny (posilek " +
+                       std::to_string(meal) + "/" + std::to_string(M) + ")");
 
-            // na razie udajemy ze ma widelce i je je
-            safe_print("F" + std::to_string(id) + " je    (posilek " + std::to_string(meal) + "/" + std::to_string(M) + ")");
+            // Tutaj filozof może czekać aż dostanie OBA widelce
+            table.take_forks(id);
+
+            safe_print("F" + std::to_string(id) + " je    (posilek " +
+                       std::to_string(meal) + "/" + std::to_string(M) + ")");
             std::this_thread::sleep_for(std::chrono::milliseconds(eat_ms(rng)));
+
+            // Oddajemy widelce i budzimy innych
+            table.put_forks(id);
         }
 
-        safe_print("F" + std::to_string(id) + " skonczyl");
+        safe_print("F" + std::to_string(id) + " skonczyl.");
     };
 
+    
 
     // Tworzymy N wątków
     for (int i = 0; i < N; ++i) {
