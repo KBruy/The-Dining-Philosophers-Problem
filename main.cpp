@@ -7,20 +7,18 @@
 #include <string>
 
 #include "table.hpp"
+#include "ui.hpp"
 
 
 
-std::mutex print_mtx;
+// //=============================================================================================
+// //bezpieczne wypisywanie jednej linijki pod mutexem
+// void safe_print(const std::string& s) {
 
-
-//=============================================================================================
-//bezpieczne wypisywanie jednej linijki pod mutexem
-void safe_print(const std::string& s) {
-
-    std::lock_guard<std::mutex> lock(print_mtx);
-    std::cout << s << std::endl;
-}
-//=============================================================================================
+//     std::lock_guard<std::mutex> lock(print_mtx);
+//     std::cout << s << std::endl;
+// }
+// //=============================================================================================
 //=============================================================================================
 // Próba zamiany string na int, zwraca 1 dla dobrego a winik zapisuje do out 
 bool parse_int(const char* s, int& out) {
@@ -72,62 +70,125 @@ int main(int argc, char** argv) {
         return 1;
 
     }
-//======================Start=======================
 
-    safe_print("Start:\n N=" + std::to_string(N) + "\nM=" + std::to_string(M));
-
-    //Stworzenie stołu - moniota który zarządza widelcami i kolejką
+//============================================================
 
     Table table(N);
+    UiShared ui(N,M);
 
-    std::vector<std::thread> philo_threads;
-    philo_threads.reserve(N);
+    // === START UI ===
 
+    std::thread ui_t(ui_thread, &ui);
 
-    //Funkcja wykonywana przez każdy wątek (filozofa)
+    std::vector<std::thread> threads;
+    threads.reserve(N);
 
-     auto philosopher = [&](int id) {
+    auto set_state = [&](int id, State s){
+        std::lock_guard<std::mutex> lock(ui.mtx);
+        ui.state[id] = s;
+    };
+
+    auto inc_meal = [&](int id) {
+        std::lock_guard<std::mutex> lock(ui.mtx);
+        ui.meals_done[id] += 1;
+    };
+
+    auto philosopher = [&](int id) {
         // generator losowy per-wątek (żeby różne czasy myślenia/jedzenia)
         std::mt19937 rng(std::random_device{}());
         std::uniform_int_distribution<int> think_ms(200, 600);
         std::uniform_int_distribution<int> eat_ms(150, 450);
 
-        for (int meal = 1; meal <= M; ++meal) {
-            safe_print("F" + std::to_string(id) + " mysli (posilek " +
-                       std::to_string(meal) + "/" + std::to_string(M) + ")");
+        for (int meal = 1; meal <= M; ++meal){
+            set_state(id, State::Thinking);
             std::this_thread::sleep_for(std::chrono::milliseconds(think_ms(rng)));
 
-            safe_print("F" + std::to_string(id) + " glodny (posilek " +
-                       std::to_string(meal) + "/" + std::to_string(M) + ")");
-
-            // Tutaj filozof może czekać aż dostanie OBA widelce
+            set_state(id, State::Hungry);
             table.take_forks(id);
 
-            safe_print("F" + std::to_string(id) + " je    (posilek " +
-                       std::to_string(meal) + "/" + std::to_string(M) + ")");
+            set_state(id, State::Eating);
             std::this_thread::sleep_for(std::chrono::milliseconds(eat_ms(rng)));
 
-            // Oddajemy widelce i budzimy innych
             table.put_forks(id);
+            inc_meal(id);
         }
 
-        safe_print("F" + std::to_string(id) + " skonczyl.");
+        set_state(id, State::Thinking);
+
     };
+
+    for (int i = 0; i < N; ++i){
+        threads.emplace_back(philosopher, i);
+
+    }
+
+    for (auto& t : threads) t.join();
+
+    //koniec UI
+
+    ui.running = false;
+    ui_t.join();
+
+    return 0;
+}
+
+
+//======================Start=======================
+
+//     safe_print("Start:\n N=" + std::to_string(N) + "\nM=" + std::to_string(M));
+
+//     //Stworzenie stołu - moniota który zarządza widelcami i kolejką
+
+//     Table table(N);
+
+//     std::vector<std::thread> philo_threads;
+//     philo_threads.reserve(N);
+
+
+//     //Funkcja wykonywana przez każdy wątek (filozofa)
+
+//      auto philosopher = [&](int id) {
+//         // generator losowy per-wątek (żeby różne czasy myślenia/jedzenia)
+//         std::mt19937 rng(std::random_device{}());
+//         std::uniform_int_distribution<int> think_ms(200, 600);
+//         std::uniform_int_distribution<int> eat_ms(150, 450);
+
+//         for (int meal = 1; meal <= M; ++meal) {
+//             safe_print("F" + std::to_string(id) + " mysli (posilek " +
+//                        std::to_string(meal) + "/" + std::to_string(M) + ")");
+//             std::this_thread::sleep_for(std::chrono::milliseconds(think_ms(rng)));
+
+//             safe_print("F" + std::to_string(id) + " glodny (posilek " +
+//                        std::to_string(meal) + "/" + std::to_string(M) + ")");
+
+//             // Tutaj filozof może czekać aż dostanie OBA widelce
+//             table.take_forks(id);
+
+//             safe_print("F" + std::to_string(id) + " je    (posilek " +
+//                        std::to_string(meal) + "/" + std::to_string(M) + ")");
+//             std::this_thread::sleep_for(std::chrono::milliseconds(eat_ms(rng)));
+
+//             // Oddajemy widelce i budzimy innych
+//             table.put_forks(id);
+//         }
+
+//         safe_print("F" + std::to_string(id) + " skonczyl.");
+//     };
 
     
 
-    // Tworzymy N wątków
-    for (int i = 0; i < N; ++i) {
-        philo_threads.emplace_back(philosopher, i);
-    }
+//     // Tworzymy N wątków
+//     for (int i = 0; i < N; ++i) {
+//         philo_threads.emplace_back(philosopher, i);
+//     }
 
-    // Czekamy na zakończenie wszystkich wątków
-    for (auto& thread : philo_threads) {
-        thread.join();
-    }
+//     // Czekamy na zakończenie wszystkich wątków
+//     for (auto& thread : philo_threads) {
+//         thread.join();
+//     }
 
-    safe_print("Koniec programu");
-    return 0;
+//     safe_print("Koniec programu");
+//     return 0;
 
-}
+// }
 //================================================================================================
