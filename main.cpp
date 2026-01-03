@@ -1,7 +1,6 @@
 #include <iostream>
 #include <thread>
 #include <vector>
-#include <mutex>
 #include <chrono>
 #include <random>
 #include <string>
@@ -9,81 +8,57 @@
 #include "table.hpp"
 #include "ui.hpp"
 
+//=========================================================
+// zamiana argumentui na int i walidacja
 
-
-// //=============================================================================================
-// //bezpieczne wypisywanie jednej linijki pod mutexem
-// void safe_print(const std::string& s) {
-
-//     std::lock_guard<std::mutex> lock(print_mtx);
-//     std::cout << s << std::endl;
-// }
-// //=============================================================================================
-//=============================================================================================
-// Próba zamiany string na int, zwraca 1 dla dobrego a winik zapisuje do out 
 bool parse_int(const char* s, int& out) {
-    try {
+    try{
+
         std::string str = s;
         size_t pos = 0;
         int val = std::stoi(str, &pos);
-
-        //sprawdz czy string miał śmieci np 123ab
-
-        if (pos != str.size()) 
+        if (pos != str.size()) //np czy arg to nie 123abc
         return false;
-
         out = val;
         return true;
-    }
-    catch (...){
+
+    } catch(...) {
         return false;
     }
 }
 
-//==============================================================================================
 int main(int argc, char** argv) {
-    // argc -> liczba argumentów (wraz z nazwą programu)
-    // argv -> tablica napisów (argumentów)
-    // np. dla .filozofowie 5 10    argc = 3     argv[1]="5", argv[2]="10"
-
-
     if (argc != 3) {
-        std::cerr << "ERROR_1:\n" << "Wybrano: "<< argv[0] << " N M\n" << "N = liczba filozofow (>=5)\n" << "M = liczba posilkow jakie filozof ma zjesc (>=1)\n";
+        std::cerr << "Uzycie: " << argv[0] << " N M\n"
+                  << "N = liczba filozofow (>=5)\n"
+                  << "M = liczba posilkow na filozofa (>=1)\n";
         return 1;
     }
 
-    int N = 0;
-    int M = 0;
-
-    if(!parse_int(argv[1], N) || !parse_int(argv[2], M)) {
-        std::cerr << "ERROR_2: N i M musza byc int";
+    int N = 0, M = 0;
+    if (!parse_int(argv[1], N) || !parse_int(argv[2], M)) {
+        std::cerr << "Blad: N i M musza byc liczbami calkowitymi.\n";
+        return 1;
+    }
+    if (N < 5 || M < 1) {
+        std::cerr << "Blad: N>=5 i M>=1.\n";
         return 1;
     }
 
-    if (N<5){
-        std::cerr<< "ERROR_3: N musi byc >= 5\n";
-        return 1;
-    }
+    Table table(N); //monitor stołu
 
-    if(M<1) {
-        std::cerr<< "ERROR_4: M musi byc >=1\n";
-        return 1;
-
-    }
-
-//============================================================
-
-    Table table(N);
     UiShared ui(N,M);
+    ui.table=&table;
 
-    // === START UI ===
+    std::thread ui_t(ui_thread, &ui);//start wątku UI
 
-    std::thread ui_t(ui_thread, &ui);
+//=====================
+//start wątku filozofów
 
     std::vector<std::thread> threads;
     threads.reserve(N);
 
-    auto set_state = [&](int id, State s){
+    auto set_state = [&](int id, State s) {
         std::lock_guard<std::mutex> lock(ui.mtx);
         ui.state[id] = s;
     };
@@ -94,101 +69,43 @@ int main(int argc, char** argv) {
     };
 
     auto philosopher = [&](int id) {
-        // generator losowy per-wątek (żeby różne czasy myślenia/jedzenia)
         std::mt19937 rng(std::random_device{}());
-        std::uniform_int_distribution<int> think_ms(200, 600);
-        std::uniform_int_distribution<int> eat_ms(150, 450);
+        std::uniform_int_distribution<int> think_ms(840, 1500);
+        std::uniform_int_distribution<int> eat_ms(600, 1100);
 
-        for (int meal = 1; meal <= M; ++meal){
+        for (int meal = 1; meal <= M; ++meal) {
+            // THINK
             set_state(id, State::Thinking);
             std::this_thread::sleep_for(std::chrono::milliseconds(think_ms(rng)));
 
-            set_state(id, State::Hungry);
+            // Prośba o oba widelce (może blokować na condition_variable)
             table.take_forks(id);
 
+            // EAT
             set_state(id, State::Eating);
             std::this_thread::sleep_for(std::chrono::milliseconds(eat_ms(rng)));
 
+            // Oddanie widelców
             table.put_forks(id);
             inc_meal(id);
         }
 
+        //Po wszystkim wracamy do Think
         set_state(id, State::Thinking);
-
     };
 
-    for (int i = 0; i < N; ++i){
-        threads.emplace_back(philosopher, i);
-
+    for (int i=0; i<N;++i){
+        threads.emplace_back(philosopher,i);
     }
 
-    for (auto& t : threads) t.join();
+    for (auto& t : threads) {
+        t.join();
+    }
 
     //koniec UI
-
     ui.running = false;
     ui_t.join();
 
     return 0;
+
 }
-
-
-//======================Start=======================
-
-//     safe_print("Start:\n N=" + std::to_string(N) + "\nM=" + std::to_string(M));
-
-//     //Stworzenie stołu - moniota który zarządza widelcami i kolejką
-
-//     Table table(N);
-
-//     std::vector<std::thread> philo_threads;
-//     philo_threads.reserve(N);
-
-
-//     //Funkcja wykonywana przez każdy wątek (filozofa)
-
-//      auto philosopher = [&](int id) {
-//         // generator losowy per-wątek (żeby różne czasy myślenia/jedzenia)
-//         std::mt19937 rng(std::random_device{}());
-//         std::uniform_int_distribution<int> think_ms(200, 600);
-//         std::uniform_int_distribution<int> eat_ms(150, 450);
-
-//         for (int meal = 1; meal <= M; ++meal) {
-//             safe_print("F" + std::to_string(id) + " mysli (posilek " +
-//                        std::to_string(meal) + "/" + std::to_string(M) + ")");
-//             std::this_thread::sleep_for(std::chrono::milliseconds(think_ms(rng)));
-
-//             safe_print("F" + std::to_string(id) + " glodny (posilek " +
-//                        std::to_string(meal) + "/" + std::to_string(M) + ")");
-
-//             // Tutaj filozof może czekać aż dostanie OBA widelce
-//             table.take_forks(id);
-
-//             safe_print("F" + std::to_string(id) + " je    (posilek " +
-//                        std::to_string(meal) + "/" + std::to_string(M) + ")");
-//             std::this_thread::sleep_for(std::chrono::milliseconds(eat_ms(rng)));
-
-//             // Oddajemy widelce i budzimy innych
-//             table.put_forks(id);
-//         }
-
-//         safe_print("F" + std::to_string(id) + " skonczyl.");
-//     };
-
-    
-
-//     // Tworzymy N wątków
-//     for (int i = 0; i < N; ++i) {
-//         philo_threads.emplace_back(philosopher, i);
-//     }
-
-//     // Czekamy na zakończenie wszystkich wątków
-//     for (auto& thread : philo_threads) {
-//         thread.join();
-//     }
-
-//     safe_print("Koniec programu");
-//     return 0;
-
-// }
-//================================================================================================
